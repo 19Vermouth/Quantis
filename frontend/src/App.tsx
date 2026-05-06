@@ -3,7 +3,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
-import PortfolioInput from './pages/PortfolioInput';
+import ForgotPassword from './pages/ForgotPassword';
+import Workspace from './pages/Workspace';
+import CreatePortfolio from './pages/CreatePortfolio';
 import Dashboard from './pages/Dashboard';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -17,11 +19,26 @@ function AppRoutes() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
-      <Route path="/portfolio" element={
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      
+      <Route path="/workspace" element={
         <ProtectedRoute>
-          <PortfolioInput />
+          <Workspace />
         </ProtectedRoute>
       } />
+      
+      <Route path="/create" element={
+        <ProtectedRoute>
+          <CreatePortfolio />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/portfolio" element={
+        <ProtectedRoute>
+          <Dashboard />
+        </ProtectedRoute>
+      } />
+      
       <Route path="/dashboard" element={
         <ProtectedRoute>
           <Dashboard />
