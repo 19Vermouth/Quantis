@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { generatePortfolio } from '../services/api';
-import type { PortfolioInput, RiskProfile, PortfolioResponse } from '../types';
+import type { PortfolioInput, RiskProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Activity, ArrowLeft, DollarSign, Clock, User, TrendingUp, AlertCircle } from 'lucide-react';
+import PortfolioLoader from '../components/PortfolioLoader';
 
 export default function PortfolioInput() {
   const { user, logout } = useAuth();
@@ -20,6 +21,7 @@ export default function PortfolioInput() {
     e.preventDefault();
     setError('');
     setLoading(true);
+    const startTime = Date.now();
 
     try {
       const input: PortfolioInput = {
@@ -32,6 +34,11 @@ export default function PortfolioInput() {
       const response = await generatePortfolio(input);
       
       localStorage.setItem('quantis_portfolio', JSON.stringify(response));
+      
+      const elapsed = Date.now() - startTime;
+      const remainingDelay = Math.max(0, 6000 - elapsed);
+      await new Promise(resolve => setTimeout(resolve, remainingDelay));
+      
       navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate portfolio');
@@ -42,6 +49,7 @@ export default function PortfolioInput() {
 
   return (
     <div className="min-h-screen bg-quantis-bg">
+      <PortfolioLoader isLoading={loading} />
       <nav className="border-b border-quantis-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -201,7 +209,10 @@ export default function PortfolioInput() {
             className="btn-primary w-full py-3 text-lg flex items-center justify-center gap-2"
           >
             {loading ? (
-              <>Generating Portfolio...</>
+              <span className="flex items-center gap-2">
+                <Activity className="w-5 h-5 animate-spin" />
+                Generating...
+              </span>
             ) : (
               <>
                 <TrendingUp className="w-5 h-5" />

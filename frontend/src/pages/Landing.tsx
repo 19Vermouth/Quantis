@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { TrendingUp, Shield, Brain, BarChart3, Activity, Sparkles } from 'lucide-react';
+import { TrendingUp, Shield, Brain, Activity, Sparkles } from 'lucide-react';
 
 export default function Landing() {
   const { isAuthenticated } = useAuth();

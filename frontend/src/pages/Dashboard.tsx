@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getLiveMarket } from '../services/api';
-import type { PortfolioResponse, LiveMarketResponse, AgentLog } from '../types';
-import { Activity, ArrowRight, TrendingUp, TrendingDown, RefreshCw, Brain, Shield, Target, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, Legend, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
+import type { PortfolioResponse, LiveMarketResponse } from '../types';
+import { Activity, TrendingUp, TrendingDown, RefreshCw, Brain, Shield, Target, MessageSquare, CheckCircle } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip } from 'recharts';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#6366f1'];
 
@@ -67,11 +67,6 @@ export default function Dashboard() {
     name: a.ticker.split('.')[0],
     value: a.weight * 100,
     amount: a.amount,
-  }));
-
-  const monteCarloData = portfolio.monte_carlo.sample_paths.map((path, i) => ({
-    path: `Sim ${i + 1}`,
-    ...path.reduce((acc, val, j) => ({ ...acc, [`y${j}`]: val }), {}),
   }));
 
   const metricsData = [
@@ -172,7 +167,7 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {portfolio.allocation.map((a, i) => (
+                        {portfolio.allocation.map((a) => (
                           <tr key={a.ticker} className="border-b border-quantis-border/50">
                             <td className="py-2">
                               <span className="mono text-quantis-text">{a.ticker.split('.')[0]}</span>
@@ -192,33 +187,112 @@ export default function Dashboard() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-quantis-bg p-3 rounded">
                       <div className="text-xs text-quantis-text-muted">5th Percentile</div>
-                      <div className="text-lg font-semibold text-quantis-text">₹{portfolio.monte_carlo.percentile_5.toLocaleString()}</div>
+                      <div className="text-lg font-semibold text-red-400">₹{portfolio.monte_carlo.percentile_5.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-quantis-bg p-3 rounded">
+                      <div className="text-xs text-quantis-text-muted">25th Percentile</div>
+                      <div className="text-lg font-semibold text-orange-400">₹{portfolio.monte_carlo.percentile_25.toLocaleString()}</div>
                     </div>
                     <div className="bg-quantis-bg p-3 rounded">
                       <div className="text-xs text-quantis-text-muted">Median</div>
-                      <div className="text-lg font-semibold text-quantis-text">₹{portfolio.monte_carlo.percentile_50.toLocaleString()}</div>
+                      <div className="text-lg font-semibold text-yellow-400">₹{portfolio.monte_carlo.percentile_50.toLocaleString()}</div>
                     </div>
                     <div className="bg-quantis-bg p-3 rounded">
                       <div className="text-xs text-quantis-text-muted">95th Percentile</div>
-                      <div className="text-lg font-semibold text-quantis-text">₹{portfolio.monte_carlo.percentile_95.toLocaleString()}</div>
-                    </div>
-                    <div className="bg-quantis-bg p-3 rounded">
-                      <div className="text-xs text-quantis-text-muted">Success Prob.</div>
-                      <div className="text-lg font-semibold text-quantis-accent">{(portfolio.monte_carlo.success_probability * 100).toFixed(0)}%</div>
+                      <div className="text-lg font-semibold text-green-400">₹{portfolio.monte_carlo.percentile_95.toLocaleString()}</div>
                     </div>
                   </div>
-                  <div className="h-64">
+                  
+                  <div className="h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={portfolio.monte_carlo.final_values.map((v, i) => ({ x: i, value: v }))}>
-                        <XAxis dataKey="x" hide />
-                        <YAxis hide />
-                        <Tooltip
-                          contentStyle={{ backgroundColor: '#111827', border: '1px solid #1e293b' }}
-                          formatter={(value: number) => [`₹${value.toLocaleString()}`, 'Portfolio Value']}
+                      <ComposedChart data={portfolio.monte_carlo.sample_paths[0]?.length 
+                        ? Array.from({ length: portfolio.monte_carlo.sample_paths[0].length }, (_, idx) => {
+                            const values = portfolio.monte_carlo.sample_paths.map(p => p[idx]).filter(v => v !== undefined);
+                            const sorted = values.sort((a, b) => a - b);
+                            return {
+                              year: idx + 1,
+                              p5: sorted[Math.floor(sorted.length * 0.05)] || 0,
+                              p25: sorted[Math.floor(sorted.length * 0.25)] || 0,
+                              p50: sorted[Math.floor(sorted.length * 0.50)] || 0,
+                              p75: sorted[Math.floor(sorted.length * 0.75)] || 0,
+                              p95: sorted[Math.floor(sorted.length * 0.95)] || 0,
+                              ...Object.fromEntries(portfolio.monte_carlo.sample_paths.slice(0, 15).map((p, i) => [`path${i}`, p[idx]]))
+                            };
+                          })
+                        : portfolio.monte_carlo.final_values.map((v, i) => ({ year: i, value: v }))
+                      }>
+                        <XAxis 
+                          dataKey="year" 
+                          stroke="#6b7280"
+                          tick={{ fill: '#6b7280', fontSize: 12 }}
+                          label={{ value: 'Years', position: 'insideBottom', offset: -5, fill: '#6b7280' }}
                         />
-                        <Area type="monotone" dataKey="value" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
-                      </AreaChart>
+                        <YAxis 
+                          stroke="#6b7280"
+                          tick={{ fill: '#6b7280', fontSize: 12 }}
+                          tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#111827', border: '1px solid #1e293b', borderRadius: '8px' }}
+                          formatter={(value: number, name: string) => {
+                            if (name.startsWith('p')) {
+                              const label = { p5: '5th', p25: '25th', p50: '50th', p75: '75th', p95: '95th' }[name] || name;
+                              return [`₹${value.toLocaleString()}`, `${label} Percentile`];
+                            }
+                            return [`₹${value.toLocaleString()}`, `Path ${name.replace('path', '')}`];
+                          }}
+                          labelFormatter={(label) => `Year ${label}`}
+                        />
+                        
+                        <Area type="monotone" dataKey="p95" stroke="none" fill="#10b981" fillOpacity={0.15} stackId={1} />
+                        <Area type="monotone" dataKey="p75" stroke="none" fill="#10b981" fillOpacity={0.15} stackId={2} />
+                        <Area type="monotone" dataKey="p50" stroke="none" fill="#10b981" fillOpacity={0.15} stackId={3} />
+                        <Area type="monotone" dataKey="p25" stroke="none" fill="#10b981" fillOpacity={0.15} stackId={4} />
+                        <Area type="monotone" dataKey="p5" stroke="none" fill="#111827" fillOpacity={0.5} stackId={5} />
+                        
+                        {portfolio.monte_carlo.sample_paths.slice(0, 15).map((_, idx) => (
+                          <Line
+                            key={idx}
+                            type="monotone"
+                            dataKey={`path${idx}`}
+                            stroke={['#10b981', '#34d399', '#6ee7b7', '#3b82f6', '#60a5fa', '#60a5fa', '#f59e0b', '#fbbf24', '#fcd34d', '#ef4444', '#f87171', '#fca5a5', '#8b5cf6', '#a78bfa', '#c084fc'][idx % 15]}
+                            strokeOpacity={0.4}
+                            strokeWidth={1}
+                            dot={false}
+                          />
+                        ))}
+                        
+                        <Line type="monotone" dataKey="p50" stroke="#fbbf24" strokeWidth={3} dot={false} strokeDasharray="5 5" />
+                        <Line type="monotone" dataKey="p5" stroke="#ef4444" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="p95" stroke="#10b981" strokeWidth={2} dot={false} />
+                      </ComposedChart>
                     </ResponsiveContainer>
+                  </div>
+                  
+                  <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-quantis-text-muted">
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-0.5 bg-red-500" /> 5th Percentile (Worst)
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-0.5 bg-yellow-400 border-dash" /> Median
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-0.5 bg-green-500" /> 95th Percentile (Best)
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-3 h-1 bg-white/20" /> Simulation Paths
+                    </span>
+                  </div>
+                  
+                  <div className="mt-4 p-3 bg-quantis-bg rounded-lg border border-quantis-border">
+                    <div className="text-xs text-quantis-text-muted mb-2">
+                      Monte Carlo simulation showing {portfolio.monte_carlo.sample_paths.length} possible portfolio trajectories over time based on historical volatility. 
+                      Shaded bands represent the 5th-95th percentile range of outcomes.
+                    </div>
+                    <div className="text-sm text-quantis-text">
+                      <span className="text-quantis-accent font-medium">{portfolio.monte_carlo.success_probability > 0.5 ? '✓' : '✗'}</span> 
+                      {' '}{(portfolio.monte_carlo.success_probability * 100).toFixed(0)}% probability of returning above initial investment
+                    </div>
                   </div>
                 </div>
               )}
