@@ -13,3 +13,5 @@ loguru
 scipy
 pytest
 pytest-asyncio
+groq
+langgraph

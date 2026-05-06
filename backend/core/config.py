@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     shoonya_user_id: Optional[str] = os.getenv("SHOONYA_USER_ID", "")
     shoonya_password: Optional[str] = os.getenv("SHOONYA_PASSWORD", "")
     shoonya_token: Optional[str] = os.getenv("SHOONYA_TOKEN", "")
+    groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY", "")
+    groq_model: str = "llama-3.3-70b-versatile"
     
     # Server
     host: str = "0.0.0.0"
