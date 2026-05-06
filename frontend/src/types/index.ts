@@ -81,4 +81,34 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  created_at?: string;
+}
+
+export interface PortfolioCard {
+  id: number;
+  name: string;
+  risk_profile: string;
+  investment_amount: number;
+  expected_value: number;
+  horizon_years: number;
+  current_version: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
+export interface WatchlistItem {
+  id: number;
+  ticker: string;
+  created_at: string;
+}
+
+export interface PortfolioVersion {
+  version_number: number;
+  metrics: PortfolioMetrics;
+  created_at: string;
 }

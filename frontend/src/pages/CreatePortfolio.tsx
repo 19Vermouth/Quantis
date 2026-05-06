@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { generatePortfolio } from '../services/api';
-import type { PortfolioInput, RiskProfile, PortfolioResponse } from '../types';
+import { createPortfolio } from '../services/api';
+import type { PortfolioInput, RiskProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Activity, ArrowLeft, DollarSign, Clock, User, TrendingUp, AlertCircle, Loader2, CheckCircle } from 'lucide-react';
 
@@ -31,23 +31,7 @@ export default function CreatePortfolio() {
         horizon_years: horizonYears,
       };
 
-      const response = await generatePortfolio(input);
-      
-      const portfolioCard = {
-        id: Date.now().toString(),
-        name: portfolioName || `Portfolio ${new Date().toLocaleDateString()}`,
-        riskProfile: riskProfile,
-        investmentAmount: investmentAmount,
-        currentValue: investmentAmount,
-        expectedValue: response.monte_carlo.percentile_50,
-        createdAt: new Date().toISOString(),
-        portfolio: response,
-      };
-
-      const saved = localStorage.getItem('quantis_portfolios');
-      const portfolios = saved ? JSON.parse(saved) : [];
-      portfolios.unshift(portfolioCard);
-      localStorage.setItem('quantis_portfolios', JSON.stringify(portfolios));
+      await createPortfolio(portfolioName || `Portfolio ${new Date().toLocaleDateString()}`, input);
       
       setStep(3);
       setTimeout(() => navigate('/workspace'), 2000);

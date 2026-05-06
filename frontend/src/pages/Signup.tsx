@@ -10,7 +10,7 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const { login } = useAuth();
+  const { register } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,11 +31,10 @@ export default function Signup() {
     }
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      login(email);
+      await register(name, email, password);
       navigate('/workspace');
-    } catch {
-      setError('Registration failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
       setLoading(false);
     }

@@ -32,6 +32,18 @@ class Settings(BaseSettings):
     # Risk-free rate (India 10-year bond yield approx)
     risk_free_rate: float = 0.072
     
+    # Database
+    postgres_user: str = os.getenv("POSTGRES_USER", "quantis")
+    postgres_password: str = os.getenv("POSTGRES_PASSWORD", "quantis_pass_2024")
+    postgres_host: str = os.getenv("POSTGRES_HOST", "localhost")
+    postgres_port: int = int(os.getenv("POSTGRES_PORT", "5432"))
+    postgres_db: str = os.getenv("POSTGRES_DB", "quantis")
+    
+    # JWT
+    secret_key: str = os.getenv("SECRET_KEY", "quantis_super_secret_key_change_in_production")
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24 * 7
+    
     class Config:
         env_file = ".env"
 

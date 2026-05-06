@@ -24,11 +24,10 @@ export default function Login() {
     }
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
-      login(email);
+      await login(email, password);
       navigate('/workspace');
-    } catch {
-      setError('Invalid credentials');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }

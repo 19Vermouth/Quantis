@@ -1,37 +1,67 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import type { PortfolioResponse } from '../types';
-import { Activity, Plus, TrendingUp, TrendingDown, Wallet, BarChart3, ArrowRight, RefreshCw, ChevronRight, PieChart, Shield, Brain } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
-
-interface PortfolioCard {
-  id: string;
-  name: string;
-  riskProfile: string;
-  investmentAmount: number;
-  currentValue: number;
-  expectedValue: number;
-  createdAt: string;
-  portfolio: PortfolioResponse | null;
-}
+import type { PortfolioCard, PortfolioResponse } from '../types';
+import { getPortfolios, getPortfolio, updatePortfolio, deletePortfolio } from '../services/api';
+import { Activity, Plus, Wallet, BarChart3, ArrowRight, RefreshCw, ChevronRight, PieChart, Trash2 } from 'lucide-react';
+import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 
 export default function Workspace() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [portfolios, setPortfolios] = useState<PortfolioCard[]>([]);
   const [selectedPortfolio, setSelectedPortfolio] = useState<PortfolioCard | null>(null);
+  const [portfolioDetails, setPortfolioDetails] = useState<PortfolioResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const saved = localStorage.getItem('quantis_portfolios');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setPortfolios(parsed);
-      if (parsed.length > 0) {
-        setSelectedPortfolio(parsed[0]);
-      }
-    }
+    loadPortfolios();
   }, []);
+
+  const loadPortfolios = async () => {
+    try {
+      setLoading(true);
+      const data = await getPortfolios();
+      setPortfolios(data);
+      if (data.length > 0) {
+        setSelectedPortfolio(data[0]);
+        const details = await getPortfolio(data[0].id);
+        setPortfolioDetails(details);
+      }
+    } catch (err) {
+      setError('Failed to load portfolios');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectPortfolio = async (p: PortfolioCard) => {
+    setSelectedPortfolio(p);
+    try {
+      const details = await getPortfolio(p.id);
+      setPortfolioDetails(details);
+    } catch (err) {
+      console.error('Failed to load portfolio details', err);
+    }
+  };
+
+  const handleDeletePortfolio = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this portfolio?')) return;
+    
+    try {
+      await deletePortfolio(id);
+      setPortfolios(portfolios.filter(p => p.id !== id));
+      if (selectedPortfolio?.id === id) {
+        setSelectedPortfolio(null);
+        setPortfolioDetails(null);
+      }
+    } catch (err) {
+      console.error('Failed to delete portfolio', err);
+    }
+  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
@@ -50,8 +80,9 @@ export default function Workspace() {
   };
 
   const generateMockPerformance = () => {
+    if (!selectedPortfolio) return [];
     const data = [];
-    let value = selectedPortfolio?.investmentAmount || 100000;
+    let value = selectedPortfolio.investment_amount;
     for (let i = 30; i >= 0; i--) {
       const change = (Math.random() - 0.45) * 0.02;
       value = value * (1 + change);
@@ -59,6 +90,14 @@ export default function Workspace() {
     }
     return data;
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-quantis-bg flex items-center justify-center">
+        <RefreshCw className="w-8 h-8 text-quantis-accent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-quantis-bg">
@@ -100,6 +139,12 @@ export default function Workspace() {
             </Link>
           </div>
           
+          {error && (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 mb-4">
+              {error}
+            </div>
+          )}
+          
           {portfolios.length === 0 ? (
             <div className="card p-8 text-center">
               <Wallet className="w-12 h-12 text-slate-600 mx-auto mb-4" />
@@ -114,7 +159,7 @@ export default function Workspace() {
               {portfolios.map((p) => (
                 <div 
                   key={p.id} 
-                  onClick={() => setSelectedPortfolio(p)}
+                  onClick={() => handleSelectPortfolio(p)}
                   className={`card p-4 cursor-pointer transition-all hover:border-quantis-accent/50 ${
                     selectedPortfolio?.id === p.id ? 'border-quantis-accent' : ''
                   }`}
@@ -122,21 +167,29 @@ export default function Workspace() {
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <h3 className="font-medium text-white">{p.name}</h3>
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${getRiskColor(p.riskProfile)}`}>
-                        {p.riskProfile}
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${getRiskColor(p.risk_profile)}`}>
+                        {p.risk_profile}
                       </span>
                     </div>
-                    <span className="text-xs text-slate-500">{formatDate(p.createdAt)}</span>
+                    <button 
+                      onClick={(e) => handleDeletePortfolio(p.id, e)}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <div className="text-slate-500">Invested</div>
-                      <div className="text-white font-medium">{formatCurrency(p.investmentAmount)}</div>
+                      <div className="text-white font-medium">{formatCurrency(p.investment_amount)}</div>
                     </div>
                     <div>
                       <div className="text-slate-500">Expected</div>
-                      <div className="text-quantis-accent font-medium">{formatCurrency(p.expectedValue)}</div>
+                      <div className="text-quantis-accent font-medium">{formatCurrency(p.expected_value)}</div>
                     </div>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-2">
+                    v{p.current_version} • {formatDate(p.created_at)}
                   </div>
                 </div>
               ))}
@@ -144,7 +197,7 @@ export default function Workspace() {
           )}
         </div>
 
-        {selectedPortfolio && selectedPortfolio.portfolio ? (
+        {selectedPortfolio && portfolioDetails ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
@@ -152,30 +205,30 @@ export default function Workspace() {
               <div className="card p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-semibold text-white">{selectedPortfolio.name}</h2>
-                  <span className={`text-xs px-3 py-1 rounded-full border ${getRiskColor(selectedPortfolio.riskProfile)}`}>
-                    {selectedPortfolio.riskProfile}
+                  <span className={`text-xs px-3 py-1 rounded-full border ${getRiskColor(selectedPortfolio.risk_profile)}`}>
+                    {selectedPortfolio.risk_profile}
                   </span>
                 </div>
                 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                   <div>
                     <div className="text-sm text-slate-500 mb-1">Invested Amount</div>
-                    <div className="text-2xl font-bold text-white">{formatCurrency(selectedPortfolio.investmentAmount)}</div>
+                    <div className="text-2xl font-bold text-white">{formatCurrency(selectedPortfolio.investment_amount)}</div>
                   </div>
                   <div>
                     <div className="text-sm text-slate-500 mb-1">Expected Value</div>
-                    <div className="text-2xl font-bold text-quantis-accent">{formatCurrency(selectedPortfolio.expectedValue)}</div>
+                    <div className="text-2xl font-bold text-quantis-accent">{formatCurrency(selectedPortfolio.expected_value)}</div>
                   </div>
                   <div>
                     <div className="text-sm text-slate-500 mb-1">Expected Return</div>
                     <div className="text-2xl font-bold text-green-400">
-                      {(selectedPortfolio.portfolio.metrics.expected_return * 100).toFixed(1)}%
+                      {(portfolioDetails.metrics.expected_return * 100).toFixed(1)}%
                     </div>
                   </div>
                   <div>
                     <div className="text-sm text-slate-500 mb-1">Risk (Vol)</div>
                     <div className="text-2xl font-bold text-orange-400">
-                      {(selectedPortfolio.portfolio.metrics.volatility * 100).toFixed(1)}%
+                      {(portfolioDetails.metrics.volatility * 100).toFixed(1)}%
                     </div>
                   </div>
                 </div>
@@ -208,14 +261,14 @@ export default function Workspace() {
                   Holdings
                 </h3>
                 <div className="space-y-3">
-                  {selectedPortfolio.portfolio.allocation.map((asset, i) => (
+                  {portfolioDetails.allocation.map((asset, i) => (
                     <div key={asset.ticker} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-xs font-bold text-slate-300">
                           {i + 1}
                         </div>
                         <div>
-                          <div className="font-medium text-white">{asset.ticker.split('.')[0]}</div>
+                          <div className="font-medium text-white">{asset.ticker}</div>
                           <div className="text-xs text-slate-500">{asset.asset_class}</div>
                         </div>
                       </div>
@@ -237,52 +290,30 @@ export default function Workspace() {
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">Sharpe Ratio</span>
-                    <span className="text-white font-medium">{selectedPortfolio.portfolio.metrics.sharpe_ratio.toFixed(2)}</span>
+                    <span className="text-white font-medium">{portfolioDetails.metrics.sharpe_ratio.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">Beta</span>
-                    <span className="text-white font-medium">{selectedPortfolio.portfolio.metrics.beta.toFixed(2)}</span>
+                    <span className="text-white font-medium">{portfolioDetails.metrics.beta.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">Max Drawdown</span>
-                    <span className="text-red-400 font-medium">{(selectedPortfolio.portfolio.metrics.max_drawdown * 100).toFixed(1)}%</span>
+                    <span className="text-red-400 font-medium">{(portfolioDetails.metrics.max_drawdown * 100).toFixed(1)}%</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">VaR 95%</span>
-                    <span className="text-orange-400 font-medium">{(selectedPortfolio.portfolio.metrics.var_95 * 100).toFixed(1)}%</span>
+                    <span className="text-orange-400 font-medium">{(portfolioDetails.metrics.var_95 * 100).toFixed(1)}%</span>
                   </div>
-                </div>
-              </div>
-
-              {/* AI Agents */}
-              <div className="card p-5">
-                <h3 className="text-sm font-medium text-slate-400 mb-4 flex items-center gap-2">
-                  <Brain className="w-4 h-4" />
-                  AI Analysis
-                </h3>
-                <div className="space-y-2">
-                  {selectedPortfolio.portfolio.agent_logs.slice(0, 3).map((agent, i) => (
-                    <div key={i} className="p-3 bg-white/5 rounded-lg">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium text-white">{agent.agent_name}</span>
-                        <span className="text-xs text-quantis-accent">{(agent.confidence * 100).toFixed(0)}%</span>
-                      </div>
-                      <p className="text-xs text-slate-400 line-clamp-2">{agent.reasoning}</p>
-                    </div>
-                  ))}
                 </div>
               </div>
 
               {/* Actions */}
               <div className="card p-5 space-y-3">
                 <button 
-                  onClick={() => navigate('/portfolio', { state: { portfolio: selectedPortfolio.portfolio } })}
+                  onClick={() => navigate('/portfolio', { state: { portfolio: portfolioDetails } })}
                   className="btn-primary w-full flex items-center justify-center gap-2"
                 >
                   View Full Analysis <ArrowRight className="w-4 h-4" />
-                </button>
-                <button className="btn-secondary w-full flex items-center justify-center gap-2">
-                  <RefreshCw className="w-4 h-4" /> Refresh
                 </button>
               </div>
             </div>
@@ -298,7 +329,7 @@ export default function Workspace() {
               </Link>
               {portfolios.length > 0 && (
                 <button 
-                  onClick={() => setSelectedPortfolio(portfolios[0])}
+                  onClick={() => handleSelectPortfolio(portfolios[0])}
                   className="btn-secondary"
                 >
                   View First Portfolio
