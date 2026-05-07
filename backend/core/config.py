@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     
     # API Keys
     alpha_vantage_key: Optional[str] = os.getenv("ALPHA_VANTAGE_KEY", "")
+    polygon_api_key: Optional[str] = os.getenv("POLYGON_API_KEY", "")
     finnhub_key: Optional[str] = os.getenv("FINNHUB_KEY", "")
     shoonya_api_key: Optional[str] = os.getenv("SHOONYA_API_KEY", "")
     shoonya_user_id: Optional[str] = os.getenv("SHOONYA_USER_ID", "")
