@@ -12,7 +12,9 @@ An India-focused AI portfolio intelligence platform using deterministic portfoli
   - Historical Agent - evaluates drawdowns, regime performance
   - Risk Agent - enforces volatility, VaR, diversification constraints
   - Consensus Engine - resolves disagreements, produces final allocation
-- **Live Market Data**: Real-time NSE market quotes via yfinance
+- **Live Market Data**: Real-time NSE market quotes via Polygon.io / Alpha Vantage / Yahoo Finance
+- **Hybrid Caching**: In-memory + persistent CSV cache with incremental updates
+- **Mock Data Fallback**: Realistic generated data when all APIs fail
 - **Modern UI**: Bloomberg-style dark interface with Recharts
 
 ## Tech Stack
@@ -22,9 +24,10 @@ An India-focused AI portfolio intelligence platform using deterministic portfoli
 - FastAPI
 - pandas, numpy, scipy
 - PyPortfolioOpt
-- yfinance
+- yfinance (fallback)
+- Polygon.io (primary data source)
+- Alpha Vantage (secondary)
 - Groq (LLM inference)
-- LangGraph (orchestration)
 
 ### Frontend
 - React 19
@@ -68,13 +71,45 @@ Create `backend/.env` with:
 # Required for AI debate agents (get free key at https://console.groq.com/)
 GROQ_API_KEY=your_groq_key
 
-# Optional APIs
-ALPHA_VANTAGE_KEY=
-FINNHUB_KEY=
+# Market Data APIs (at least one recommended)
+POLYGON_API_KEY=your_polygon_key          # Primary - 5 calls/min free tier
+ALPHA_VANTAGE_KEY=your_alpha_vantage_key  # Secondary - 5 calls/min free tier
+FINNHUB_KEY=your_finnhub_key            # Optional - sentiment data
+
+# Shoonya API (optional - for live Indian market data)
 SHOONYA_API_KEY=
 SHOONYA_USER_ID=
 SHOONYA_PASSWORD=
 ```
+
+## Caching System
+
+The platform uses a **hybrid caching system** for market data:
+
+| Layer | Storage | TTL | Purpose |
+|-------|--------|-----|--------|
+| **Memory** | In-memory (dict) | 5 minutes | Fast access for repeated requests |
+| **File** | `backend/cache/*.csv` | 24 hours | Persist across restarts |
+| **Incremental** | Date-range queries | Per request | Only fetch new data points |
+
+### Cache Behavior
+
+1. **First request**: Fetches full data from API, saves to memory + file
+2. **Subsequent requests**: Uses cached data if recent
+3. **Old cache**: Fetches only new data points since last cache date
+4. **All APIs fail**: Generates realistic mock data as fallback
+
+### Cache Directory
+
+```
+backend/cache/
+├── RELIANCE_NS.csv    # Cached market data
+├── TCS_NS.csv
+├── INFY_NS.csv
+└── ...
+```
+
+Cache files are gitignored and stored persistently.
 
 ## API Endpoints
 
@@ -98,17 +133,25 @@ POST /api/portfolio
 
 ## Supported Assets
 
-- NIFTYBEES.NS (Nifty Index)
-- GOLDBEES.NS (Gold)
-- LIQUIDBEES.NS (Money Market)
+- NIFTYBEES.NS (Nifty Index ETF)
+- GOLDBEES.NS (Gold ETF)
+- LIQUIDBEES.NS (Money Market ETF)
 - RELIANCE.NS, INFY.NS, TCS.NS
 - HDFCBANK.NS, ICICIBANK.NS, TATAMOTORS.NS
+- ^NSEI (Nifty 50 Index)
 
 ## Architecture
 
 ```
-User Input → Market Data → Feature Engineering → Portfolio Optimization → Risk Model → Monte Carlo → Debate Agents → Consensus → Output
+User Input → Market Data (with caching) → Feature Engineering → Portfolio Optimization → Risk Model → Monte Carlo → Debate Agents → Consensus → Output
 ```
+
+### Data Source Priority
+
+1. **Polygon.io** - Primary (reliable for Indian stocks)
+2. **Alpha Vantage** - Secondary
+3. **Yahoo Finance** - Tertiary fallback
+4. **Mock Data** - Ultimate fallback (always works)
 
 ### Debate Flow
 
