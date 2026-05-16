@@ -56,9 +56,8 @@ class PortfolioOptimizer:
             ef.add_constraint(lambda w: w >= 0)
             
             if "max_volatility" in profile_constraints:
-                ef.add_constraint(
-                    lambda w: risk_models.portfolio_volatility(w, cov_matrix) <= profile_constraints["max_volatility"]
-                )
+                max_vol = profile_constraints["max_volatility"]
+                ef.add_constraint(lambda w: np.sqrt(np.dot(w.T, np.dot(cov_matrix * 252, w))) <= max_vol)
             
             weights = ef.max_sharpe(risk_free_rate=self.risk_free_rate)
             
