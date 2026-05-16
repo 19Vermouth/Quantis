@@ -83,16 +83,24 @@ async def generate_portfolio(input_data: PortfolioInput):
             input_data.horizon_years
         )
 
-        debate_consensus, debate_agents = await run_debate_flow(
-            weights,
-            metrics.model_dump(),
-            input_data.risk_profile.value,
-            input_data.investment_amount,
-            input_data.horizon_years,
-            list(weights.keys())
-        )
-
-        adjusted_weights = debate_consensus.adjusted_weights
+        try:
+            debate_consensus, debate_agents = await asyncio.wait_for(
+                run_debate_flow(
+                    weights,
+                    metrics.model_dump(),
+                    input_data.risk_profile.value,
+                    input_data.investment_amount,
+                    input_data.horizon_years,
+                    list(weights.keys())
+                ),
+                timeout=5.0
+            )
+            adjusted_weights = debate_consensus.adjusted_weights
+            logger.info("[DEBATE] Completed successfully")
+        except asyncio.TimeoutError:
+            logger.warning("[DEBATE] Timeout, using optimizer weights")
+            debate_agents = []
+            adjusted_weights = weights
 
         metrics = risk_model.calculate_metrics(adjusted_weights, returns_data, benchmark_returns)
 

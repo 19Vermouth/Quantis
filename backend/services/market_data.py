@@ -2,7 +2,7 @@ import yfinance as yf
 import httpx
 import pandas as pd
 import numpy as np
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 from datetime import datetime, timedelta
 from loguru import logger
 from core.config import settings
@@ -13,20 +13,29 @@ import hashlib
 
 
 class CacheManager:
-    """Hybrid cache: in-memory + persistent file-based"""
+    """Hybrid cache: in-memory + persistent file-based with Parquet"""
     
     def __init__(self, cache_dir: str = "cache"):
         self.cache_dir = cache_dir
         self.memory_cache: Dict[str, Tuple[pd.DataFrame, datetime]] = {}
         self.memory_ttl = settings.cache_ttl  # 5 minutes default
         
-        # Create cache directory
         os.makedirs(cache_dir, exist_ok=True)
     
     def _get_cache_path(self, ticker: str) -> str:
-        """Get file path for ticker"""
+        """Get file path for ticker - prefers Parquet, falls back to CSV"""
         safe_name = ticker.replace("^", "").replace(".", "_")
-        return os.path.join(self.cache_dir, f"{safe_name}.csv")
+        parquet_path = os.path.join(self.cache_dir, f"{safe_name}.parquet")
+        csv_path = os.path.join(self.cache_dir, f"{safe_name}.csv")
+        
+        if os.path.exists(parquet_path):
+            return parquet_path
+        if os.path.exists(csv_path):
+            return csv_path
+        return parquet_path
+    
+    def _is_parquet(self, path: str) -> bool:
+        return path.endswith('.parquet')
     
     def _is_memory_valid(self, key: str) -> bool:
         """Check in-memory cache validity"""
@@ -35,35 +44,48 @@ class CacheManager:
         _, timestamp = self.memory_cache[key]
         return (datetime.now() - timestamp).total_seconds() < self.memory_ttl
     
-    def get(self, ticker: str) -> Optional[pd.DataFrame]:
+    def get(self, ticker: str, allow_stale: bool = True) -> Optional[pd.DataFrame]:
         """Get from cache (memory first, then file)"""
         cache_key = ticker
         
         # Try memory first
         if self._is_memory_valid(cache_key):
-            logger.info(f"Using memory cache for {ticker}")
+            logger.info(f"[CACHE] Memory hit for {ticker}")
             return self.memory_cache[cache_key][0]
         
         # Try persistent file
         cache_file = self._get_cache_path(ticker)
         if os.path.exists(cache_file):
             try:
-                df = pd.read_csv(cache_file, index_col=0, parse_dates=True)
-                # Validate file is not stale (>24 hours)
+                if self._is_parquet(cache_file):
+                    df = pd.read_parquet(cache_file)
+                else:
+                    df = pd.read_csv(cache_file, index_col=0, parse_dates=True)
+                
                 if not df.empty:
                     last_date = df.index[-1]
-                    if (datetime.now() - last_date).days < 1:
-                        # Update memory cache
+                    age_days = (datetime.now() - last_date).days
+                    
+                    # Fresh cache (< 1 day)
+                    if age_days < 1:
                         self.memory_cache[cache_key] = (df, datetime.now())
-                        logger.info(f"Using file cache for {ticker} ({len(df)} rows)")
+                        logger.info(f"[CACHE] Disk hit (fresh) for {ticker}: {len(df)} rows, age={age_days}d")
                         return df
+                    
+                    # Stale but allowed
+                    if allow_stale and age_days < 2:
+                        logger.info(f"[CACHE] Stale disk hit for {ticker}: {len(df)} rows, age={age_days}d")
+                        return df
+                        
+                    logger.info(f"[CACHE] Expired for {ticker}: age={age_days}d")
             except Exception as e:
-                logger.warning(f"Cache read error for {ticker}: {e}")
+                logger.warning(f"[CACHE] Read error for {ticker}: {e}")
         
+        logger.info(f"[CACHE] Miss for {ticker}")
         return None
     
     def set(self, ticker: str, df: pd.DataFrame):
-        """Save to both memory and file"""
+        """Save to both memory and file (Parquet)"""
         if df is None or df.empty:
             return
         
@@ -72,246 +94,121 @@ class CacheManager:
         # Save to memory
         self.memory_cache[cache_key] = (df, datetime.now())
         
-        # Save to persistent file
+        # Save to persistent file as Parquet
         try:
             cache_file = self._get_cache_path(ticker)
-            df.to_csv(cache_file)
-            logger.info(f"Cached {ticker} to {cache_file} ({len(df)} rows)")
+            if not cache_file.endswith('.parquet'):
+                cache_file = cache_file.replace('.csv', '.parquet')
+            df.to_parquet(cache_file, index=True)
+            logger.info(f"[CACHE] Wrote Parquet for {ticker}: {len(df)} rows")
         except Exception as e:
-            logger.warning(f"Cache write error for {ticker}: {e}")
+            logger.warning(f"[CACHE] Write error for {ticker}: {e}")
     
     def get_last_date(self, ticker: str) -> Optional[datetime]:
         """Get last cached date for incremental updates"""
-        df = self.get(ticker)
+        df = self.get(ticker, allow_stale=True)
         if df is not None and not df.empty:
             return df.index[-1]
         return None
 
 
-class IncrementalFetcher:
-    """Fetch only new data since last cached date"""
+class BulkFetcher:
+    """Bulk yfinance fetcher with threading"""
     
     def __init__(self, cache: CacheManager):
         self.cache = cache
         self.polygon_limiter = RateLimiter(5)
         self.alpha_limiter = RateLimiter(5)
     
-    async def fetch_incremental(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        """Fetch incremental data - only new points since last cache"""
-        last_date = self.cache.get_last_date(ticker)
+    async def fetch_all_bulk(self, tickers: List[str], period: str = "1y") -> Dict[str, pd.DataFrame]:
+        """Bulk fetch all tickers using yfinance with threads"""
+        logger.info(f"[FETCH] Starting bulk fetch for {len(tickers)} tickers")
+        start_time = time.time()
         
-        # If no cache, do full fetch
-        if last_date is None:
-            return await self._fetch_full(ticker, period)
+        # Check which tickers need fetching
+        tickers_needed = []
+        for ticker in tickers:
+            cached = self.cache.get(ticker, allow_stale=False)
+            if cached is None:
+                tickers_needed.append(ticker)
         
-        # Calculate date range for new data only
-        days_since = (datetime.now() - last_date).days
+        logger.info(f"[FETCH] {len(tickers_needed)} tickers need fetching, {len(tickers) - len(tickers_needed)} from cache")
         
-        # If cache is recent (<2 days), use cached data
-        if days_since < 2:
-            logger.info(f"Cache recent for {ticker}, using cached data")
-            return self.cache.get(ticker)
+        results = {}
         
-        # Fetch new data from last cached date
-        start_date = last_date + timedelta(days=1)
-        end_date = datetime.now()
+        # First, get all cached data
+        for ticker in tickers:
+            cached = self.cache.get(ticker, allow_stale=True)
+            if cached is not None:
+                results[ticker] = cached
         
-        if start_date >= end_date:
-            logger.info(f"No new data needed for {ticker}")
-            return self.cache.get(ticker)
+        if not tickers_needed:
+            elapsed = time.time() - start_time
+            logger.info(f"[FETCH] All cached, took {elapsed:.2f}s")
+            return results
         
-        logger.info(f"Fetching incremental data for {ticker} from {start_date.date()}")
-        
-        # Try to get new data
-        new_df = await self._fetch_range(ticker, start_date, end_date)
-        
-        if new_df is not None and not new_df.empty:
-            # Merge with cached data
-            cached_df = self.cache.get(ticker)
-            if cached_df is not None and not cached_df.empty:
-                # Combine, remove duplicates, sort
-                combined = pd.concat([cached_df, new_df])
-                combined = combined[~combined.index.duplicated(keep='last')]
-                combined = combined.sort_index()
-                merged_df = combined
-            else:
-                merged_df = new_df
-            
-            # Update cache
-            self.cache.set(ticker, merged_df)
-            return merged_df
-        
-        # If incremental fetch fails, return cached
-        return self.cache.get(ticker)
-    
-    async def _fetch_full(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        """Full fetch from all sources"""
-        # Try Polygon first
-        df = await self._fetch_polygon(ticker, period)
-        if df is not None and not df.empty:
-            self.cache.set(ticker, df)
-            return df
-        
-        # Try Alpha Vantage
-        df = await self._fetch_alpha(ticker, period)
-        if df is not None and not df.empty:
-            self.cache.set(ticker, df)
-            return df
-        
-        # Try Yahoo
-        df = await self._fetch_yahoo(ticker, period)
-        if df is not None and not df.empty:
-            self.cache.set(ticker, df)
-            return df
-        
-        # Generate mock data
-        df = self._generate_mock(ticker, period)
-        self.cache.set(ticker, df)
-        return df
-    
-    async def _fetch_range(self, ticker: str, start_date: datetime, end_date: datetime) -> Optional[pd.DataFrame]:
-        """Fetch data for specific date range"""
-        # Try Yahoo (most flexible for date ranges)
+        # Bulk download missing tickers via yfinance
         try:
-            stock = yf.Ticker(ticker)
-            start_str = start_date.strftime("%Y-%m-%d")
-            end_str = end_date.strftime("%Y-%m-%d")
-            df = stock.history(start=start_str, end=end_str)
+            logger.info(f"[FETCH] Downloading {len(tickers_needed)} tickers via yfinance bulk")
+            fetch_start = time.time()
             
-            if not df.empty:
-                logger.info(f"Yahoo range fetch for {ticker}: {len(df)} new rows")
-                return df
-        except Exception as e:
-            logger.warning(f"Yahoo range fetch failed: {e}")
-        
-        # Try Polygon for range
-        if settings.polygon_api_key:
-            try:
-                await self.polygon_limiter.acquire()
-                symbol = ticker.replace(".NS", "").replace("^NSEI", "NSEI")
-                url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}.NS/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
-                params = {"adjusted": "true", "apikey": settings.polygon_api_key}
-                
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(url, params=params)
-                    data = response.json()
+            # Use yfinance bulk download with threads
+            yf_data = yf.download(
+                tickers_needed,
+                period=period,
+                progress=False,
+                threads=True,
+                auto_adjust=True,
+                group_by='ticker'
+            )
+            
+            fetch_time = time.time() - fetch_start
+            logger.info(f"[FETCH] yfinance download took {fetch_time:.2f}s")
+            
+            # Process each ticker
+            for ticker in tickers_needed:
+                try:
+                    if group_by := 'ticker' and len(tickers_needed) > 1:
+                        if ticker in yf_data.columns.get_level_values(0):
+                            df = yf_data[ticker].dropna()
+                        else:
+                            df = pd.DataFrame()
+                    else:
+                        df = yf_data.dropna()
                     
-                    if data.get("results"):
-                        records = []
-                        for r in data["results"]:
-                            records.append({
-                                "Date": datetime.fromtimestamp(r["t"] / 1000),
-                                "Open": r["o"],
-                                "High": r["h"],
-                                "Low": r["l"],
-                                "Close": r["c"],
-                                "Volume": r["v"]
-                            })
-                        df = pd.DataFrame(records).set_index("Date")
-                        logger.info(f"Polygon range fetch for {ticker}: {len(df)} new rows")
-                        return df
-            except Exception as e:
-                logger.warning(f"Polygon range fetch failed: {e}")
-        
-        return None
-    
-    async def _fetch_polygon(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        if not settings.polygon_api_key:
-            return None
-        
-        try:
-            await self.polygon_limiter.acquire()
-            
-            symbol = ticker.replace(".NS", "").replace("^NSEI", "NSEI")
-            from_date = (datetime.now() - timedelta(days=365 if period == "1y" else 100)).strftime("%Y-%m-%d")
-            to_date = datetime.now().strftime("%Y-%m-%d")
-            
-            url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}.NS/range/1/day/{from_date}/{to_date}"
-            params = {"adjusted": "true", "apikey": settings.polygon_api_key}
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, params=params)
-                data = response.json()
-                
-                if data.get("status") != "OK" or not data.get("results"):
-                    return None
-                
-                records = []
-                for r in data["results"]:
-                    records.append({
-                        "Date": datetime.fromtimestamp(r["t"] / 1000),
-                        "Open": r["o"],
-                        "High": r["h"],
-                        "Low": r["l"],
-                        "Close": r["c"],
-                        "Volume": r["v"]
-                    })
-                
-                df = pd.DataFrame(records).set_index("Date").sort_index()
-                logger.info(f"Polygon: {len(df)} rows for {ticker}")
-                return df
-                
-        except Exception as e:
-            logger.error(f"Polygon failed: {e}")
-            return None
-    
-    async def _fetch_alpha(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        if not settings.alpha_vantage_key:
-            return None
-        
-        try:
-            await self.alpha_limiter.acquire()
-            
-            symbol = ticker.replace(".NS", "")
-            url = "https://www.alphavantage.co/query"
-            params = {
-                "function": "TIME_SERIES_DAILY",
-                "symbol": symbol,
-                "outputsize": "compact",
-                "apikey": settings.alpha_vantage_key
-            }
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, params=params)
-                data = response.json()
-                
-                if "Time Series (Daily)" not in data:
-                    return None
-                
-                records = []
-                for date, values in data["Time Series (Daily)"].items():
-                    records.append({
-                        "Date": date,
-                        "Open": float(values["1. open"]),
-                        "High": float(values["2. high"]),
-                        "Low": float(values["3. low"]),
-                        "Close": float(values["4. close"]),
-                        "Volume": int(values["5. volume"])
-                    })
-                
-                df = pd.DataFrame(records).set_index("Date").sort_index()
-                logger.info(f"Alpha Vantage: {len(df)} rows for {ticker}")
-                return df
-                
-        except Exception as e:
-            logger.error(f"Alpha Vantage failed: {e}")
-            return None
-    
-    async def _fetch_yahoo(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        try:
-            stock = yf.Ticker(ticker)
-            df = stock.history(period=period)
-            
-            if df.empty:
-                return None
-            
-            df = df.dropna()
-            logger.info(f"Yahoo: {len(df)} rows for {ticker}")
-            return df
+                    if df.empty:
+                        logger.warning(f"[FETCH] Empty data for {ticker}")
+                        continue
+                    
+                    # Standardize columns
+                    if 'Close' not in df.columns:
+                        df = df.rename(columns={
+                            'Open': 'Open', 'High': 'High', 'Low': 'Low', 
+                            'Close': 'Close', 'Volume': 'Volume'
+                        })
+                    
+                    results[ticker] = df
+                    self.cache.set(ticker, df)
+                    logger.info(f"[FETCH] Got {len(df)} rows for {ticker}")
+                    
+                except Exception as e:
+                    logger.warning(f"[FETCH] Error processing {ticker}: {e}")
             
         except Exception as e:
-            logger.error(f"Yahoo failed: {e}")
-            return None
+            logger.error(f"[FETCH] yfinance bulk failed: {e}")
+        
+        # Fill missing with mock data
+        for ticker in tickers_needed:
+            if ticker not in results:
+                logger.info(f"[FETCH] Using mock data for {ticker}")
+                df = self._generate_mock(ticker, period)
+                results[ticker] = df
+                self.cache.set(ticker, df)
+        
+        total_time = time.time() - start_time
+        logger.info(f"[FETCH] Total fetch time: {total_time:.2f}s, got {len(results)}/{len(tickers)}")
+        
+        return results
     
     def _generate_mock(self, ticker: str, period: str = "1y") -> pd.DataFrame:
         """Generate realistic mock data"""
@@ -338,7 +235,7 @@ class IncrementalFetcher:
             "Volume": np.random.randint(100000, 10000000, days)
         }, index=dates)
         
-        logger.info(f"Mock: {len(df)} rows for {ticker}")
+        logger.info(f"[MOCK] Generated {len(df)} rows for {ticker}")
         return df
 
 
@@ -357,11 +254,42 @@ class RateLimiter:
             self.last_call = time.time()
 
 
+class ComputationCache:
+    """Cache for computed metrics"""
+    
+    def __init__(self):
+        self.expected_returns_cache: Optional[pd.Series] = None
+        self.cov_matrix_cache: Optional[pd.DataFrame] = None
+        self.data_hash: str = ""
+        self.timestamp: Optional[datetime] = None
+        self.ttl = 300  # 5 minutes
+    
+    def is_valid(self, data_hash: str) -> bool:
+        if self.timestamp is None:
+            return False
+        if self.data_hash != data_hash:
+            return False
+        return (datetime.now() - self.timestamp).total_seconds() < self.ttl
+    
+    def set(self, data_hash: str, expected_returns: pd.Series, cov_matrix: pd.DataFrame):
+        self.data_hash = data_hash
+        self.expected_returns_cache = expected_returns
+        self.cov_matrix_cache = cov_matrix
+        self.timestamp = datetime.now()
+    
+    def get(self, data_hash: str) -> Tuple[Optional[pd.Series], Optional[pd.DataFrame]]:
+        if self.is_valid(data_hash):
+            logger.info("[COMP_CACHE] Hit")
+            return self.expected_returns_cache, self.cov_matrix_cache
+        logger.info("[COMP_CACHE] Miss")
+        return None, None
+
+
 class MarketDataService:
     def __init__(self):
-        # Initialize hybrid cache
         self.cache = CacheManager("cache")
-        self.fetcher = IncrementalFetcher(self.cache)
+        self.bulk_fetcher = BulkFetcher(self.cache)
+        self.comp_cache = ComputationCache()
         
         self.tickers = {
             "NIFTYBEES.NS": "Nifty Bees (NSE)",
@@ -388,30 +316,26 @@ class MarketDataService:
             "TATAMOTORS.NS": "Equity"
         }
     
-    async def fetch_historical_data(self, ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        """Fetch using incremental cache - only downloads new data"""
-        # Try cache first
-        cached = self.cache.get(ticker)
-        if cached is not None and not cached.empty:
-            return cached
-        
-        # Fetch with incremental updates
-        return await self.fetcher.fetch_incremental(ticker, period)
-    
     async def fetch_all_data(self) -> Dict[str, pd.DataFrame]:
-        """Fetch all tickers"""
-        results = {}
-        tasks = [self.fetch_historical_data(ticker) for ticker in self.tickers.keys()]
-        dataframes = await asyncio.gather(*tasks)
+        """Fetch all tickers using bulk download"""
+        logger.info("[MARKET_DATA] fetch_all_data started")
+        start = time.time()
         
-        for ticker, df in zip(self.tickers.keys(), dataframes):
-            if df is not None:
-                results[ticker] = df
+        results = await self.bulk_fetcher.fetch_all_bulk(
+            list(self.tickers.keys()), 
+            period="1y"
+        )
+        
+        elapsed = time.time() - start
+        logger.info(f"[MARKET_DATA] fetch_all_data completed in {elapsed:.2f}s, got {len(results)} tickers")
         
         return results
     
     def calculate_returns(self, df: pd.DataFrame) -> pd.Series:
-        return np.log(df["Close"] / df["Close"].shift(1)).dropna()
+        returns = np.log(df["Close"] / df["Close"].shift(1)).dropna()
+        if returns.index.tz is not None:
+            returns.index = returns.index.tz_localize(None)
+        return returns
     
     def calculate_covariance_matrix(self, data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         returns_dict = {}
@@ -427,13 +351,28 @@ class MarketDataService:
                 returns_dict[ticker] = self.calculate_returns(df)
         return pd.DataFrame(returns_dict).corr()
     
-    def get_expected_returns(self, data: Dict[str, pd.DataFrame]) -> pd.Series:
+    def get_expected_returns(self, data: Dict[str, pd.DataFrame], use_cache: bool = True) -> pd.Series:
+        # Create hash of data to use for caching
+        data_hash = str(sum(len(df) for df in data.values()))
+        
+        if use_cache:
+            cached_er, cached_cov = self.comp_cache.get(data_hash)
+            if cached_er is not None:
+                return cached_er
+        
         returns_dict = {}
         for ticker, df in data.items():
             if ticker != "^NSEI" and not df.empty:
                 daily = self.calculate_returns(df)
                 returns_dict[ticker] = daily.mean() * 252
-        return pd.Series(returns_dict)
+        
+        result = pd.Series(returns_dict)
+        
+        if use_cache:
+            cov = self.calculate_covariance_matrix(data)
+            self.comp_cache.set(data_hash, result, cov)
+        
+        return result
     
     def get_volatility(self, data: Dict[str, pd.DataFrame]) -> pd.Series:
         vol_dict = {}
@@ -451,7 +390,6 @@ class MarketDataService:
     
     async def get_live_price(self, ticker: str) -> Optional[float]:
         try:
-            # Try Polygon first
             if settings.polygon_api_key:
                 try:
                     symbol = ticker.replace(".NS", "").replace("^NSEI", "NSEI")
@@ -466,7 +404,6 @@ class MarketDataService:
                 except:
                     pass
             
-            # Fallback to Yahoo
             stock = yf.Ticker(ticker)
             try:
                 return stock.fast_info.last_price

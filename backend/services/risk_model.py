@@ -91,12 +91,20 @@ class RiskModel:
         if benchmark_returns.empty or portfolio_returns.empty:
             return 1.0
         
-        common_index = portfolio_returns.index.intersection(benchmark_returns.index)
+        portfolio_idx = portfolio_returns.index.tz_localize(None) if portfolio_returns.index.tz is not None else portfolio_returns.index
+        benchmark_idx = benchmark_returns.index.tz_localize(None) if benchmark_returns.index.tz is not None else benchmark_returns.index
+        
+        portfolio_naive = portfolio_returns.copy()
+        portfolio_naive.index = portfolio_idx
+        benchmark_naive = benchmark_returns.copy()
+        benchmark_naive.index = benchmark_idx
+        
+        common_index = portfolio_naive.index.intersection(benchmark_naive.index)
         if len(common_index) < 10:
             return 1.0
         
-        portfolio_aligned = portfolio_returns.loc[common_index]
-        benchmark_aligned = benchmark_returns.loc[common_index]
+        portfolio_aligned = portfolio_naive.loc[common_index]
+        benchmark_aligned = benchmark_naive.loc[common_index]
         
         covariance = np.cov(portfolio_aligned, benchmark_aligned)[0][1]
         benchmark_variance = np.var(benchmark_aligned)
