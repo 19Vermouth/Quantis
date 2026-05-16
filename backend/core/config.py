@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     app_name: str = "Quantis"
     app_version: str = "1.0.0"
     
+    # Database
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./quantis.db")
+    
     # API Keys
     alpha_vantage_key: Optional[str] = os.getenv("ALPHA_VANTAGE_KEY", "")
     polygon_api_key: Optional[str] = os.getenv("POLYGON_API_KEY", "")
@@ -17,6 +20,9 @@ class Settings(BaseSettings):
     shoonya_token: Optional[str] = os.getenv("SHOONYA_TOKEN", "")
     groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY", "")
     groq_model: str = "llama-3.3-70b-versatile"
+    
+    # JWT
+    jwt_secret: str = os.getenv("JWT_SECRET", "quantis-secret-key-change-in-production")
     
     # Server
     host: str = "0.0.0.0"

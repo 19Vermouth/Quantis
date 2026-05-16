@@ -1,7 +1,9 @@
 # Quantis - Project Semantics Reference
 
+Last updated: May 16, 2026
+
 ## Project Overview
-AI Portfolio Intelligence Platform for Indian investors using mean-variance optimization, Monte Carlo simulation, and adversarial multi-agent debate orchestration.
+AI Portfolio Intelligence Platform for Indian investors using mean-variance optimization, Monte Carlo simulation, authenticated portfolio management, and adversarial multi-agent debate orchestration.
 
 ## Architecture
 - **Backend**: FastAPI + SQLAlchemy + PostgreSQL
@@ -16,6 +18,7 @@ AI Portfolio Intelligence Platform for Indian investors using mean-variance opti
 | AI/LLM | Groq (llama-3.3-70b-versatile) for debate agents |
 | Frontend | React 19, TypeScript, Vite, Tailwind, Recharts |
 | Database | PostgreSQL (port 5433), pgAdmin (port 5050) |
+| Auth | JWT bearer token stored in localStorage and sent in `Authorization` headers |
 
 ## Key Files
 
@@ -23,7 +26,10 @@ AI Portfolio Intelligence Platform for Indian investors using mean-variance opti
 - `backend/app/main.py` - FastAPI app entry point, CORS, routers
 - `backend/api/portfolio.py` - Portfolio generation endpoint (POST /api/portfolio)
 - `backend/api/live.py` - Live market data (mocked, GET /api/live)
+- `backend/api/auth.py` - Login/register endpoints and JWT issuance
+- `backend/api/portfolios.py` - Protected portfolio CRUD, scenarios, watchlists, goals, alerts, notifications, questionnaire, suitability, rebalance
 - `backend/models/schemas.py` - Pydantic schemas (PortfolioInput, PortfolioResponse, etc.)
+- `backend/models/database.py` - SQLAlchemy models and relationships
 - `backend/services/market_data.py` - Market data service with hybrid caching (memory + file)
 - `backend/services/portfolio_optimizer.py` - PyPortfolioOpt optimization by risk profile
 - `backend/services/risk_model.py` - Risk metrics (VaR, Sharpe, max drawdown, beta, alpha)
@@ -35,8 +41,16 @@ AI Portfolio Intelligence Platform for Indian investors using mean-variance opti
 
 ### Frontend
 - `frontend/src/App.tsx` - Router with protected routes
+- `frontend/src/components/Layout.tsx` - Shared authenticated shell for portfolio pages
 - `frontend/src/pages/PortfolioInput.tsx` - Portfolio input form
 - `frontend/src/pages/Dashboard.tsx` - Portfolio visualization (Allocation, Monte Carlo, Agents tabs)
+- `frontend/src/pages/MyPortfolios.tsx` - Saved portfolios list and export actions
+- `frontend/src/pages/Scenarios.tsx` - Saved scenarios list and run-from-scenario flow
+- `frontend/src/pages/Watchlist.tsx` - Watchlist CRUD and live quote view
+- `frontend/src/pages/Goals.tsx` - Goals CRUD and progress tracking
+- `frontend/src/pages/Alerts.tsx` - Alerts CRUD
+- `frontend/src/pages/Notifications.tsx` - Notifications list and read state
+- `frontend/src/pages/RiskQuestionnaire.tsx` - Risk assessment questionnaire and suitability flow
 - `frontend/src/services/api.ts` - API client functions
 - `frontend/src/types/index.ts` - TypeScript interfaces
 - `frontend/src/context/AuthContext.tsx` - Auth state management
@@ -47,6 +61,15 @@ AI Portfolio Intelligence Platform for Indian investors using mean-variance opti
 | GET | `/health` | Health check |
 | POST | `/api/portfolio` | Generate portfolio |
 | GET | `/api/live` | Live market data (mock) |
+| POST | `/api/auth/login` | Login and receive access token |
+| POST | `/api/auth/register` | Register and receive access token |
+| GET/POST/PUT/DELETE | `/api/portfolios` | Protected portfolio CRUD |
+| GET/POST/PUT/DELETE | `/api/scenarios` | Protected scenario CRUD |
+| GET/POST/PUT/DELETE | `/api/watchlists` | Protected watchlist CRUD |
+| GET/POST/PUT/DELETE | `/api/goals` | Protected goals CRUD |
+| GET/POST/PUT/DELETE | `/api/alerts` | Protected alerts CRUD |
+| GET/PUT | `/api/notifications` | Protected notifications and read state |
+| GET/POST | `/api/risk-questionnaire` | Risk assessment and submission |
 
 ## Supported Assets (Indian Market)
 - NIFTYBEES.NS - Nifty Index ETF
@@ -106,6 +129,10 @@ cd frontend && npm run dev  # runs on 5173, proxies to 8000
 # Database
 docker-compose up -d  # PostgreSQL 5433, pgAdmin 5050
 ```
+
+## Current Notes
+- The protected portfolio-management suite is wired through `backend/api/portfolios.py` and uses JWT bearer auth.
+- The frontend stores the token in localStorage and sends it automatically through `frontend/src/services/api.ts`.
 
 ## Key Configuration (.env)
 ```

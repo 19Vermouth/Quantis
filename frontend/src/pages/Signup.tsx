@@ -31,9 +31,19 @@ export default function Signup() {
     }
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      login(email);
-      navigate('/portfolio');
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Registration failed');
+      }
+      
+      const data = await response.json();
+      login(email, data.access_token);
+      navigate('/dashboard');
     } catch {
       setError('Registration failed');
     } finally {

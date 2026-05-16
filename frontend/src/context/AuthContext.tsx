@@ -4,7 +4,8 @@ import type { User } from '../types';
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string) => void;
+  token: string | null;
+  login: (email: string, token: string) => void;
   logout: () => void;
 }
 
@@ -15,24 +16,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('quantis_user');
     return saved ? JSON.parse(saved) : null;
   });
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
 
-  const login = (email: string) => {
-    const mockUser: User = {
+  const login = (email: string, newToken: string) => {
+    const userData: User = {
       id: '1',
       email,
       name: email.split('@')[0],
     };
-    setUser(mockUser);
-    localStorage.setItem('quantis_user', JSON.stringify(mockUser));
+    setUser(userData);
+    setToken(newToken);
+    localStorage.setItem('quantis_user', JSON.stringify(userData));
+    localStorage.setItem('token', newToken);
   };
 
   const logout = () => {
     setUser(null);
+    setToken(null);
     localStorage.removeItem('quantis_user');
+    localStorage.removeItem('token');
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, token, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

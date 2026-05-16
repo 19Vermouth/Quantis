@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { getLiveMarket } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { getLiveMarket, savePortfolio } from '../services/api';
 import type { PortfolioResponse, LiveMarketResponse } from '../types';
-import { Activity, TrendingUp, TrendingDown, RefreshCw, Brain, Shield, Target, MessageSquare, CheckCircle } from 'lucide-react';
+import Layout from '../components/Layout';
+import { Activity, TrendingUp, TrendingDown, RefreshCw, Brain, Shield, Target, MessageSquare, CheckCircle, Save } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip } from 'recharts';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#6366f1'];
@@ -25,12 +25,35 @@ const AGENT_COLORS: Record<string, string> = {
 };
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState<PortfolioResponse | null>(null);
   const [liveMarket, setLiveMarket] = useState<LiveMarketResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'allocation' | 'monte-carlo' | 'agents' | 'debate'>('allocation');
+
+  const handleSavePortfolio = async () => {
+    if (!portfolio) return;
+    setSaving(true);
+    try {
+      await savePortfolio({
+        age: 30,
+        risk_profile: 'moderate',
+        investment_amount: portfolio.allocation.reduce((sum, a) => sum + a.amount, 0),
+        horizon_years: 5,
+        allocation: portfolio.allocation,
+        metrics: portfolio.metrics,
+        monte_carlo: { ...portfolio.monte_carlo, final_values: portfolio.monte_carlo.final_values.slice(0, 100) },
+        agent_logs: portfolio.agent_logs,
+        explanation: portfolio.explanation,
+      });
+      alert('Portfolio saved successfully!');
+    } catch (e) {
+      alert('Failed to save portfolio');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('quantis_portfolio');
@@ -80,36 +103,19 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-quantis-bg">
-      <nav className="border-b border-quantis-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-4">
-              <Link to="/" className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-quantis-accent rounded-lg flex items-center justify-center">
-                  <Activity className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-xl font-bold text-quantis-text">Quantis</span>
-              </Link>
-              <span className="text-quantis-text-muted">/ Dashboard</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => navigate('/portfolio')}
-                className="btn-secondary text-sm"
-              >
-                New Portfolio
-              </button>
-              <span className="text-quantis-text-muted text-sm">{user?.email}</span>
-              <button onClick={logout} className="text-quantis-text-muted hover:text-quantis-text text-sm">
-                Logout
-              </button>
-            </div>
-          </div>
+    <Layout>
+      <div>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-quantis-text">Your Portfolio</h1>
+          <button 
+            onClick={handleSavePortfolio}
+            disabled={saving}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {saving ? 'Saving...' : 'Save Portfolio'}
+          </button>
         </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <div className="card">
@@ -531,9 +537,9 @@ export default function Dashboard() {
                 })}
               </p>
             </div>
-          </div>
+        </div>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 }

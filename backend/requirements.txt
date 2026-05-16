@@ -15,3 +15,6 @@ pytest
 pytest-asyncio
 groq
 langgraph
+sqlalchemy
+PyJWT
+python-jose

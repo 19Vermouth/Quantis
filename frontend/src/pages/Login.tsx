@@ -24,9 +24,19 @@ export default function Login() {
     }
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      login(email);
-      navigate('/portfolio');
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Invalid credentials');
+      }
+      
+      const data = await response.json();
+      login(email, data.access_token);
+      navigate('/dashboard');
     } catch {
       setError('Invalid credentials');
     } finally {

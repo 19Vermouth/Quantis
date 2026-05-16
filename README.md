@@ -1,6 +1,8 @@
 # Quantis - AI Portfolio Intelligence Platform
 
-An India-focused AI portfolio intelligence platform using deterministic portfolio construction, quantitative risk analytics, Monte Carlo simulation, and adversarial multi-agent debate orchestration.
+Last updated: May 16, 2026
+
+An India-focused AI portfolio intelligence platform using deterministic portfolio construction, quantitative risk analytics, authenticated portfolio management, Monte Carlo simulation, and adversarial multi-agent debate orchestration.
 
 ## Features
 
@@ -15,7 +17,8 @@ An India-focused AI portfolio intelligence platform using deterministic portfoli
 - **Live Market Data**: Real-time NSE market quotes via Polygon.io / Alpha Vantage / Yahoo Finance
 - **Hybrid Caching**: In-memory + persistent CSV cache with incremental updates
 - **Mock Data Fallback**: Realistic generated data when all APIs fail
-- **Modern UI**: Bloomberg-style dark interface with Recharts
+- **Authenticated Portfolio Management**: Save portfolios, saved scenarios, watchlists, goals, alerts, notifications, and risk assessment
+- **Modern UI**: Bloomberg-style dark interface with Recharts and shared authenticated layout
 
 ## Tech Stack
 
@@ -35,6 +38,7 @@ An India-focused AI portfolio intelligence platform using deterministic portfoli
 - Vite
 - Tailwind CSS
 - Recharts
+- JWT bearer token stored in localStorage by the auth context
 
 ## Quick Start
 
@@ -118,6 +122,15 @@ Cache files are gitignored and stored persistently.
 | GET | `/health` | Health check |
 | POST | `/api/portfolio` | Generate portfolio with debate agents |
 | GET | `/api/live` | Live market data |
+| POST | `/api/auth/login` | Login and receive access token |
+| POST | `/api/auth/register` | Register and receive access token |
+| GET/POST/PUT/DELETE | `/api/portfolios` | Saved portfolio management |
+| GET/POST/PUT/DELETE | `/api/scenarios` | Saved scenario management |
+| GET/POST/PUT/DELETE | `/api/watchlists` | Watchlist management |
+| GET/POST/PUT/DELETE | `/api/goals` | Goal tracking |
+| GET/POST/PUT/DELETE | `/api/alerts` | Alert management |
+| GET/PUT | `/api/notifications` | Notifications and read state |
+| GET/POST | `/api/risk-questionnaire` | Risk assessment and submission |
 
 ## Example Request
 
@@ -172,3 +185,7 @@ User Input → Market Data (with caching) → Feature Engineering → Portfolio 
 ## License
 
 MIT
+
+## Status
+
+Current app date: May 16, 2026. The authenticated portfolio-management flows are active and the backend login/protected routes are verified with the demo account.

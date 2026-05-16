@@ -1,21 +1,51 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { generatePortfolio } from '../services/api';
+import { useState, useEffect } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { generatePortfolio, saveScenario } from '../services/api';
 import type { PortfolioInput, RiskProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Activity, ArrowLeft, DollarSign, Clock, User, TrendingUp, AlertCircle } from 'lucide-react';
+import { Activity, ArrowLeft, DollarSign, Clock, User, TrendingUp, AlertCircle, Save } from 'lucide-react';
 import PortfolioLoader from '../components/PortfolioLoader';
 
 export default function PortfolioInput() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [age, setAge] = useState(30);
   const [riskProfile, setRiskProfile] = useState<RiskProfile>('moderate');
   const [investmentAmount, setInvestmentAmount] = useState(100000);
   const [horizonYears, setHorizonYears] = useState(5);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const state = location.state as { age?: number; risk_profile?: string; investment_amount?: number; horizon_years?: number } | null;
+    if (state) {
+      if (state.age) setAge(state.age);
+      if (state.risk_profile) setRiskProfile(state.risk_profile as RiskProfile);
+      if (state.investment_amount) setInvestmentAmount(state.investment_amount);
+      if (state.horizon_years) setHorizonYears(state.horizon_years);
+    }
+  }, [location.state]);
+
+  const handleSaveScenario = async () => {
+    setSaving(true);
+    try {
+      await saveScenario({
+        name: `Scenario ${new Date().toLocaleDateString()}`,
+        age,
+        risk_profile: riskProfile,
+        investment_amount: investmentAmount,
+        horizon_years: horizonYears,
+      });
+      alert('Scenario saved!');
+    } catch (e) {
+      alert('Failed to save scenario');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,23 +233,34 @@ export default function PortfolioInput() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn-primary w-full py-3 text-lg flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <Activity className="w-5 h-5 animate-spin" />
-                Generating...
-              </span>
-            ) : (
-              <>
-                <TrendingUp className="w-5 h-5" />
-                Generate Portfolio
-              </>
-            )}
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={handleSaveScenario}
+              disabled={saving}
+              className="btn-secondary flex-1 py-3 text-lg flex items-center justify-center gap-2"
+            >
+              <Save className="w-5 h-5" />
+              {saving ? 'Saving...' : 'Save as Scenario'}
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary flex-[2] py-3 text-lg flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 animate-spin" />
+                  Generating...
+                </span>
+              ) : (
+                <>
+                  <TrendingUp className="w-5 h-5" />
+                  Generate Portfolio
+                </>
+              )}
+            </button>
+          </div>
         </form>
       </div>
     </div>

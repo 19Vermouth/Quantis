@@ -18,7 +18,7 @@ export default function Landing() {
             </div>
             <div className="flex items-center gap-4">
               {isAuthenticated ? (
-                <Link to="/portfolio" className="btn-primary">Go to Dashboard</Link>
+                <Link to="/dashboard" className="btn-primary">Go to Dashboard</Link>
               ) : (
                 <>
                   <Link to="/login" className="text-quantis-text-muted hover:text-quantis-text transition-colors">
